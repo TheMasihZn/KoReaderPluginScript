@@ -32,7 +32,14 @@ gen_seed() {
 gen_prn() {
     local current_seed=$1
     # Force base-10 for numbers that may have leading zeros to avoid octal interpretation
-    local next_seed=$(( (A * 10#${current_seed} + C) % M ))
+    # Use awk to avoid shell arithmetic overflow on platforms with 32-bit math
+    local next_seed
+    next_seed=$(awk -v A="$A" -v C="$C" -v M="$M" -v S="$current_seed" 'BEGIN {
+        # Coerce to numeric, strip any sign for modulo stability
+        if (S+0 < 0) S = -(S+0); else S = S+0;
+        ns = (A * S + C) % M;
+        printf "%d", ns
+    }')
     echo "$next_seed"
 }
 
@@ -45,8 +52,14 @@ next_rand(){
     # Map to an odd number in [1, 603]
     # Take modulo 302 to get k in [0..301], then map to odd N = 2*k + 1 → [1..603]
     # Force base-10 in modulo to avoid octal errors when the number has leading zeros
-    local mod=$(( 10#${rand#-} % 302 ))
-    echo "$mod"
+    # Use awk to avoid shell arithmetic pitfalls and ensure a value in 1..603
+    local n
+    n=$(awk -v R="$rand" 'BEGIN {
+        # Ensure non-negative
+        if (R+0 < 0) R = -(R+0); else R = R+0;
+        printf "%d",(R % 302)
+    }')
+    echo "$n"
 }
 
 usage() {
@@ -80,7 +93,11 @@ resolve_csv_file() {
     elif [[ -n "$CSV_FILE_ENV" ]]; then
         chosen="$CSV_FILE_ENV"
     else
-        chosen="source.csv"
+        # Fallback: resolve CSV relative to this script's directory
+        # Works even when the current working directory is different (as in KOReader)
+        local script_dir
+        script_dir="$(cd "$(dirname "$0")" && pwd)"
+        chosen="${script_dir}/source.csv"
     fi
     echo "$chosen"
 }
